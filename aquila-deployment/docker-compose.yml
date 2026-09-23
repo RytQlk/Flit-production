@@ -1,0 +1,187 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    expose:
+      - "5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    expose:
+      - "6379"
+    command: >
+      sh -c 'if [ -n "$REDIS_PASSWORD" ]; then
+        redis-server --requirepass "$REDIS_PASSWORD";
+      else
+        redis-server;
+      fi'
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  web:
+    image: newaquilaacr.azurecr.io/aquila-web:1.0.0
+    restart: unless-stopped
+    expose:
+      - "4005"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST:-db}:5432/${POSTGRES_DB}
+      PROJECT_NAME: ${PROJECT_NAME:-Aquila}
+      WEB_PORT: "4005"
+      WEB_WORKERS: ${WEB_WORKERS:-2}
+      WEB_DB_POOL_MIN_SIZE: ${WEB_DB_POOL_MIN_SIZE:-1}
+      WEB_DB_POOL_MAX_SIZE: ${WEB_DB_POOL_MAX_SIZE:-5}
+      WEB_FORWARDED_ALLOW_IPS: ${WEB_FORWARDED_ALLOW_IPS:-*}
+      REDIS_URL: "${REDIS_URL:-${REDIS_SCHEME:-redis}://:${REDIS_PASSWORD:-}@${REDIS_HOST:-redis}:${REDIS_PORT:-6379}}"
+      WEB_REDIS_CONNECT_TIMEOUT_SECONDS: ${WEB_REDIS_CONNECT_TIMEOUT_SECONDS:-2}
+      WEB_REDIS_COMMAND_TIMEOUT_SECONDS: ${WEB_REDIS_COMMAND_TIMEOUT_SECONDS:-2}
+      WEB_REDIS_MAX_CONNECTIONS: ${WEB_REDIS_MAX_CONNECTIONS:-5}
+      MICROSOFT_TENANT_ID: ${MICROSOFT_TENANT_ID}
+      MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID}
+      MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET}
+      MICROSOFT_REDIRECT_URI: ${MICROSOFT_REDIRECT_URI}
+      MICROSOFT_POST_LOGIN_REDIRECT_URL: ${MICROSOFT_POST_LOGIN_REDIRECT_URL}
+      SESSION_TTL_SECONDS: ${SESSION_TTL_SECONDS:-3600}
+      SSO_COOKIE_SECURE: ${SSO_COOKIE_SECURE:-true}
+      AQUILA_COOKIE_ENCRYPTION_KEY: ${AQUILA_COOKIE_ENCRYPTION_KEY}
+      AQUILA_MINIMUM_PASSWORD_LENGTH: ${AQUILA_MINIMUM_PASSWORD_LENGTH:-12}
+      AQUILA_LOGIN_LOCKOUT_FAILURES: ${AQUILA_LOGIN_LOCKOUT_FAILURES:-5}
+      AQUILA_LOGIN_LOCKOUT_SECONDS: ${AQUILA_LOGIN_LOCKOUT_SECONDS:-900}
+      AQUILA_ENTRA_ADMIN_IDENTITIES: ${AQUILA_ENTRA_ADMIN_IDENTITIES:-}
+      AQUILA_ENTRA_ADMIN_EMAILS: ${AQUILA_ENTRA_ADMIN_EMAILS:-}
+      LITELLM_INTERNAL_URL: http://gateway:4010
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      AQUILA_CLASSIFIER_LLM_BASE_URL: http://gateway:4010
+      AQUILA_CLASSIFIER_LLM_VIRTUAL_KEY: ${AQUILA_CLASSIFIER_LLM_VIRTUAL_KEY:-}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:4005/health/ready\")'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  gateway:
+    image: newaquilaacr.azurecr.io/aquila-gateway:1.0.0
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST:-db}:5432/${POSTGRES_DB}
+      LITELLM_VERSION: ${LITELLM_VERSION:-1.98.0}
+      LITELLM_PACKAGE_SHA256: ${LITELLM_PACKAGE_SHA256:-}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      LITELLM_SALT_KEY: ${LITELLM_SALT_KEY}
+      STORE_MODEL_IN_DB: ${STORE_MODEL_IN_DB:-True}
+      LITELLM_CONFIG_PATH: /app/litellm_config.yaml
+      PRISMA_MIGRATION_MODE: "off"
+      DISABLE_SCHEMA_UPDATE: "true"
+      GATEWAY_PORT: "4010"
+      GATEWAY_WORKERS: ${GATEWAY_WORKERS:-2}
+      LITELLM_WORKER_STARTUP_HOOKS: gateway.callbacks.production:worker_startup
+      AQUILA_CLASSIFIER_REFRESH_INTERVAL_SECONDS: ${AQUILA_CLASSIFIER_REFRESH_INTERVAL_SECONDS:-30}
+      AQUILA_CLASSIFIER_LLM_BASE_URL: http://gateway:4010
+      AQUILA_CLASSIFIER_LLM_VIRTUAL_KEY: ${AQUILA_CLASSIFIER_LLM_VIRTUAL_KEY:-}
+      AQUILA_COOKIE_ENCRYPTION_KEY: ${AQUILA_COOKIE_ENCRYPTION_KEY}
+      MICROSOFT_TENANT_ID: ${MICROSOFT_TENANT_ID}
+      MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID}
+      MICROSOFT_TOKEN_REFRESH_BUFFER_SECONDS: ${MICROSOFT_TOKEN_REFRESH_BUFFER_SECONDS:-120}
+      CUSTOM_MODEL_COST_MAP_PATH: ${CUSTOM_MODEL_COST_MAP_PATH:-/app/custom-model-costs.json}
+      CUSTOM_MODEL_COST_MAP_URL: ${CUSTOM_MODEL_COST_MAP_URL:-}
+      RAG_ENABLED: ${RAG_ENABLED:-false}
+      AZURE_SEARCH_ENDPOINT: ${AZURE_SEARCH_ENDPOINT:-}
+      AZURE_SEARCH_INDEX_NAME: ${AZURE_SEARCH_INDEX_NAME:-}
+      AZURE_SEARCH_API_VERSION: ${AZURE_SEARCH_API_VERSION:-2026-05-01-preview}
+      RAG_MIN_SCORE: ${RAG_MIN_SCORE:-0.5}
+      RAG_TOP_K: ${RAG_TOP_K:-5}
+      RAG_TIMEOUT_SECONDS: ${RAG_TIMEOUT_SECONDS:-15}
+      RAG_RETRY_ATTEMPTS: ${RAG_RETRY_ATTEMPTS:-4}
+      RAG_FAILURE_MODE: ${RAG_FAILURE_MODE:-bypass}
+      REDIS_URL: "${REDIS_URL:-${REDIS_SCHEME:-redis}://:${REDIS_PASSWORD:-}@${REDIS_HOST:-redis}:${REDIS_PORT:-6379}}"
+    volumes:
+      - ./litellm_config.yaml:/app/litellm_config.yaml:ro
+      - ./custom-model-costs.json:/app/custom-model-costs.json:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "/app/.venv/bin/python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:4010/health/readiness\")'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  nginx:
+    container_name: nginx
+    image: nginx:1.30.4-alpine
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      web:
+        condition: service_healthy
+      gateway:
+        # Keep the web/admin bootstrap path reachable while the gateway starts.
+        condition: service_started
+
+  litellm-migrate:
+    image: newaquilaacr.azurecr.io/aquila-litellm-migrate:1.0.0
+    restart: "no"
+    profiles:
+      - migration
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST:-db}:5432/${POSTGRES_DB}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      LITELLM_SALT_KEY: ${LITELLM_SALT_KEY}
+      LITELLM_CONFIG_PATH: /app/litellm_config.yaml
+      PRISMA_MIGRATION_MODE: ${MIGRATION_EXECUTION_MODE:-migrate}
+      MIGRATION_FAILURE_POLICY: "fail"
+      PRISMA_USE_V2_MIGRATION_RESOLVER: ${PRISMA_USE_V2_MIGRATION_RESOLVER:-false}
+      PRISMA_ALLOW_DATA_LOSS: ${PRISMA_ALLOW_DATA_LOSS:-false}
+      RUN_MIGRATIONS_ONLY: "true"
+    volumes:
+      - ./litellm_config.yaml:/app/litellm_config.yaml:ro
+    depends_on:
+      db:
+        condition: service_healthy
+
+  aquila-migrate:
+    image: newaquilaacr.azurecr.io/aquila-web:1.0.0
+    restart: "no"
+    profiles:
+      - migration
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST:-db}:5432/${POSTGRES_DB}
+      RUN_AQUILA_MIGRATIONS_ONLY: "true"
+      AQUILA_BOOTSTRAP_ADMIN_USERNAME: ${AQUILA_BOOTSTRAP_ADMIN_USERNAME:-admin}
+      AQUILA_BOOTSTRAP_ADMIN_PASSWORD: ${AQUILA_BOOTSTRAP_ADMIN_PASSWORD:-}
+      AQUILA_MINIMUM_PASSWORD_LENGTH: ${AQUILA_MINIMUM_PASSWORD_LENGTH:-12}
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+    name: ${POSTGRES_VOLUME_NAME:-aquila_pgdata}
+  redisdata:
+    name: ${REDIS_VOLUME_NAME:-aquila_redisdata}

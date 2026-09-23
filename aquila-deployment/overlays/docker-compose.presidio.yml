@@ -1,0 +1,34 @@
+# Optional Aquila-managed Presidio services and gateway dependencies.
+services:
+  presidio-analyzer:
+    image: ghcr.io/data-privacy-stack/presidio-analyzer:${PRESIDIO_IMAGE_TAG:-2.2.362}@${PRESIDIO_ANALYZER_IMAGE_DIGEST:-sha256:286e3fa7f3a7426e775e8564fe1870f1ba8f999d3ab8bbb8cc46a44355d9d6e9}
+    restart: unless-stopped
+    expose:
+      - "3000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:3000/health\")'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  presidio-anonymizer:
+    image: ghcr.io/data-privacy-stack/presidio-anonymizer:${PRESIDIO_IMAGE_TAG:-2.2.362}@${PRESIDIO_ANONYMIZER_IMAGE_DIGEST:-sha256:a10a12a2a613d13cf29d3ad3641e3258444dd8c90403dd644a0a114c472c2483}
+    restart: unless-stopped
+    expose:
+      - "3000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:3000/health\")'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  gateway:
+    depends_on:
+      presidio-analyzer:
+        condition: service_healthy
+      presidio-anonymizer:
+        condition: service_healthy
+
+  web:
+    environment:
+      AQUILA_MANAGED_PRESIDIO_ENABLED: "true"

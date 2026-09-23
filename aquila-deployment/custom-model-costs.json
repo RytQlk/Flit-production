@@ -1,0 +1,16 @@
+{
+  "openai/custom-gpt-4.1": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.000003,
+    "output_cost_per_token": 0.000015
+  },
+  "anthropic/custom-sonnet": {
+    "litellm_provider": "anthropic",
+    "mode": "chat",
+    "input_cost_per_token": 0.000004,
+    "output_cost_per_token": 0.00002,
+    "cache_read_input_token_cost": 0.0000004,
+    "cache_creation_input_token_cost": 0.000005
+  }
+}
